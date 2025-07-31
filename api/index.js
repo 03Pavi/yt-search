@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { Innertube } from 'youtubei.js';
 import { YouTube } from 'youtube-sr';
-import ytdl from '@distube/ytdl-core';
+import ytdl from 'ytdl-core';
 import * as dotenv from "dotenv"
 
 dotenv.config()
