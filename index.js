@@ -2,13 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import { Innertube } from 'youtubei.js';
 import { YouTube } from 'youtube-sr';
-import ytdl from 'ytdl-core';
+import ytdl from '@distube/ytdl-core';
 import * as dotenv from "dotenv"
+import morgan from "morgan"
 
 dotenv.config()
 
 const app = express();
 const port = process.env.PORT || 3000;
+app.use(morgan("tiny"))
 app.use(cors());
 app.use(express.json());
 
@@ -17,6 +19,22 @@ let yt;
 (async () => {
   yt = await Innertube.create();
 })();
+
+app.get("/", (req, res) => {
+  res.type("text").send(`
+
+          server is up and running:
+
+          Available routes:
+
+          1.) /search?q={query}&limit={limit}
+          2.) /video/{id}
+          3.) /download/{id}
+          4.) /related/{id}
+          
+`);
+});
+
 
 app.get('/search', async (req, res) => {
   const query = req.query.q;
@@ -44,7 +62,9 @@ app.get('/video/:id', async (req, res) => {
       author: videoInfo.basic_info.author,
       duration: videoInfo.basic_info.duration,
       thumbnails: videoInfo.basic_info.thumbnail,
-      description: videoInfo.basic_info.description,
+      description: videoInfo.basic_info.short_description,
+      keywords: videoInfo.basic_info.keywords,
+      embed: videoInfo.basic_info.embed,
     });
   } catch (err) {
     console.error(err);
