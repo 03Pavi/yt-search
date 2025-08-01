@@ -73,24 +73,34 @@ app.get('/video/:id', async (req, res) => {
 });
 
 
-
 app.get('/download/:id', async (req, res) => {
   const videoId = req.params.id;
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
 
-  try {
-    const url = `https://www.youtube.com/watch?v=${videoId}`;
-
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="${videoId}.mp4"`);
-
-    ytdl(url, {
-      quality: 'highest',
-      filter: 'audioandvideo',
-    }).pipe(res);
-  } catch (err) {
-    console.error('❌ ytdl download error:', err);
-    res.status(500).json({ error: 'Could not download video' });
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    return res.status(400).json({ error: 'Invalid video ID' });
   }
+
+  const retryRequest = async (retries = 3, delay = 1000) => {
+    try {
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', `attachment; filename="${videoId}.mp4"`);
+      ytdl(url, {
+        quality: 'highest',
+        filter: 'audioandvideo',
+      }).pipe(res);
+    } catch (err) {
+      if (err.statusCode === 429 && retries > 0) {
+        console.warn(`Rate limit hit, retrying after ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return retryRequest(retries - 1, delay * 2);
+      }
+      console.error('❌ ytdl download error:', err);
+      res.status(500).json({ error: 'Could not download video' });
+    }
+  };
+
+  await retryRequest();
 });
 
 
