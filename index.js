@@ -2,9 +2,30 @@ import express from 'express';
 import cors from 'cors';
 import { Innertube } from 'youtubei.js';
 import { YouTube } from 'youtube-sr';
-import ytdl from '@distube/ytdl-core';
 import * as dotenv from "dotenv"
 import morgan from "morgan"
+
+import { Readable } from 'stream';
+
+function webStreamToNodeStream(webStream) {
+  const reader = webStream.getReader();
+
+  return new Readable({
+    async read() {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          this.push(null); // no more data
+        } else {
+          this.push(Buffer.from(value)); // push chunk to node stream
+        }
+      } catch (err) {
+        this.destroy(err);
+      }
+    },
+  });
+}
+
 
 dotenv.config()
 
@@ -16,9 +37,20 @@ app.use(express.json());
 
 let yt;
 
-(async () => {
-  yt = await Innertube.create();
-})();
+const startServer = async () => {
+  try {
+    yt = await Innertube.create();
+    app.listen(port, () => {
+      console.log(`🚀 Server running at http://localhost:${port}`);
+    });
+  } catch (err) {
+    console.error("❌ Failed to initialize Innertube:", err);
+  }
+};
+
+startServer();
+
+
 
 app.get("/", (req, res) => {
   res.type("text").send(`
@@ -34,6 +66,16 @@ app.get("/", (req, res) => {
           
 `);
 });
+
+app.get("/trendings", async (req, res) => {
+  try {
+    const trending = await yt.getTrending();
+    res.json(trending);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 
 app.get('/search', async (req, res) => {
@@ -75,33 +117,27 @@ app.get('/video/:id', async (req, res) => {
 
 app.get('/download/:id', async (req, res) => {
   const videoId = req.params.id;
-  const url = `https://www.youtube.com/watch?v=${videoId}`;
+  const quality = req.query.quality || 'best';
+  const type = req.query.type || 'video+audio';
 
-  if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
-    return res.status(400).json({ error: 'Invalid video ID' });
-  }
+  try {
+    const streamData = await yt.getStreamingData(videoId, {
+      type,
+      quality,
+    });
 
-  const retryRequest = async (retries = 3, delay = 1000) => {
-    try {
-      res.setHeader('Content-Type', 'video/mp4');
-      res.setHeader('Content-Disposition', `attachment; filename="${videoId}.mp4"`);
-      ytdl(url, {
-        quality: 'highest',
-        filter: 'audioandvideo',
-      }).pipe(res);
-    } catch (err) {
-      if (err.statusCode === 429 && retries > 0) {
-        console.warn(`Rate limit hit, retrying after ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return retryRequest(retries - 1, delay * 2);
-      }
-      console.error('❌ ytdl download error:', err);
-      res.status(500).json({ error: 'Could not download video' });
+    if (!streamData?.url) {
+      return res.status(404).json({ error: 'No direct stream URL found' });
     }
-  };
 
-  await retryRequest();
+    return res.json({ url: streamData.url });
+  } catch (err) {
+    console.error('❌ Failed to get stream data:', err);
+    return res.status(500).json({ error: 'Could not retrieve video URL' });
+  }
 });
+
+
 
 
 app.get('/related/:id', async (req, res) => {
@@ -129,9 +165,4 @@ app.get('/related/:id', async (req, res) => {
     console.error('❌ Failed to fetch related videos:', err);
     res.status(500).json({ error: 'Could not get related videos' });
   }
-});
-
-
-app.listen(port, () => {
-  console.log(`🚀 Server running at http://localhost:${port}`);
 });
