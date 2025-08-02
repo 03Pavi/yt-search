@@ -39,7 +39,9 @@ let yt;
 
 const startServer = async () => {
   try {
-    yt = await Innertube.create();
+    yt = await Innertube.create({
+      cookies: process.env.YT_COOKIES
+    });
     app.listen(port, () => {
       console.log(`🚀 Server running at http://localhost:${port}`);
     });
@@ -121,23 +123,32 @@ app.get('/download/:id', async (req, res) => {
   const type = req.query.type || 'video+audio';
 
   try {
-    const streamData = await yt.getStreamingData(videoId, {
-      type,
-      quality,
-    });
+    let info;
+    try {
+      info = await yt.getInfo(videoId);
+    } catch {
+      info = await yt.getShortsVideoInfo(videoId); // fallback for shorts
+    }
 
-    if (!streamData?.url) {
+    // Try normal format selection first
+    let format = info.chooseFormat({ quality, type });
+    let url = format?.url || null;
+
+    // Fallback: check if server_abr_streaming_url exists
+    if (!url && info.streaming_data?.server_abr_streaming_url) {
+      url = info.streaming_data.server_abr_streaming_url;
+    }
+
+    if (!url) {
       return res.status(404).json({ error: 'No direct stream URL found' });
     }
 
-    return res.json({ url: streamData.url });
+    res.json({ url });
   } catch (err) {
     console.error('❌ Failed to get stream data:', err);
-    return res.status(500).json({ error: 'Could not retrieve video URL' });
+    res.status(500).json({ error: 'Could not retrieve video URL' });
   }
 });
-
-
 
 
 app.get('/related/:id', async (req, res) => {
